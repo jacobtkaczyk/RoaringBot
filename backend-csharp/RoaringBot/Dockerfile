@@ -13,3 +13,8 @@ RUN dotnet build -c Release
 
 # Run the app
 CMD ["dotnet", "run", "--configuration", "Release"]
+
+# Add at the end of Dockerfile
+RUN apt-get update && \
+    apt-get install -y unzip && \
+    curl -sSL https://aka.ms/getvsdbgsh | bash /dev/stdin -v latest -l /vsdbg

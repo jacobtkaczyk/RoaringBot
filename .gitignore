@@ -1,0 +1,10 @@
+## Build output
+**/bin/
+**/obj/
+
+## VS Code local settings (optional)
+.vscode/
+
+## User-specific files
+*.user
+*.suo

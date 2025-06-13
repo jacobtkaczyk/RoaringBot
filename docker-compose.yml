@@ -4,6 +4,8 @@ services:
     build:
       context: ./algos-python
     container_name: python-algos
+    ports:
+      - "5678:5678"
     volumes:
       - ./algos-python:/app
     networks:
@@ -15,6 +17,10 @@ services:
     container_name: csharp-backend
     ports:
       - "5075:5075"
+      - "9229:9229"  # For debugger attach
+    environment:
+      - DOTNET_USE_POLLING_FILE_WATCHER=1
+      - ASPNETCORE_ENVIRONMENT=Development
     volumes:
       - ./backend-csharp/RoaringBot:/app      
     networks:
