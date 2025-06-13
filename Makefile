@@ -4,5 +4,5 @@ up:
 build:
 	docker-compose up --build
 
-stop:
+down:
 	docker-compose down
