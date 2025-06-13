@@ -1,0 +1,22 @@
+version: '3.9'
+services:
+  python-algos:
+    build:
+      context: ./algos-python
+    container_name: python-algos
+    volumes:
+      - ./algos-python:/app
+    networks:
+      - tradingnet
+
+  csharp-backend:
+    build:
+      context: ./backend-csharp/RoaringBot    
+    container_name: csharp-backend
+    volumes:
+      - ./backend-csharp/RoaringBot:/app      
+    networks:
+      - tradingnet
+
+networks:
+  tradingnet:
