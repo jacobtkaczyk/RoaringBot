@@ -25,6 +25,8 @@ services:
       - ./backend-csharp/RoaringBot:/app      
     networks:
       - tradingnet
+    env_file:
+      - .env
 
 networks:
   tradingnet:
