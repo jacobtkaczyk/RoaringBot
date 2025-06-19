@@ -28,5 +28,23 @@ services:
     env_file:
       - .env
 
+  postgres:
+      image: postgres:15
+      container_name: trading-postgres
+      restart: always
+      environment:
+        POSTGRES_USER: roaringbot
+        POSTGRES_PASSWORD: supersecret
+        POSTGRES_DB: trading
+      ports:
+        - "5432:5432"
+      volumes:
+        - pgdata:/var/lib/postgresql/data
+      networks:
+        - tradingnet
+
+volumes:
+  pgdata:
+
 networks:
   tradingnet:

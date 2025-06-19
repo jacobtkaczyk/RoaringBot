@@ -1,8 +1,15 @@
+using Npgsql;
 using Alpaca.Markets;
 using Environments = Alpaca.Markets.Environments;
 
 var builder = WebApplication.CreateBuilder(args);
 builder.WebHost.UseUrls("http://0.0.0.0:5075");
+
+var connStr = builder.Configuration.GetConnectionString("PostgresDb");
+await using var conn = new NpgsqlConnection(connStr);
+await conn.OpenAsync();
+
+Console.WriteLine("Connected to PostgreSQL inside Docker!");
 
 var app = builder.Build();
 

@@ -6,3 +6,6 @@ build:
 
 down:
 	docker-compose down
+
+ps:
+	docker-compose up -d postgres
