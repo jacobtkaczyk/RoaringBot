@@ -5,17 +5,18 @@ using Environments = Alpaca.Markets.Environments;
 var builder = WebApplication.CreateBuilder(args);
 builder.WebHost.UseUrls("http://0.0.0.0:5075");
 
-// 🔹 Add CORS service
 builder.Services.AddCors(options =>
 {
     options.AddPolicy("AllowReactApp",
         policy =>
         {
-            policy.WithOrigins("http://localhost:5173") // React dev server
+            // 👇 UPDATE THIS LINE
+            policy.WithOrigins("http://localhost:3000", "http://localhost:5173") 
                   .AllowAnyMethod()
                   .AllowAnyHeader();
         });
 });
+
 
 var connStr = builder.Configuration.GetConnectionString("PostgresDb");
 await using var conn = new NpgsqlConnection(connStr);
