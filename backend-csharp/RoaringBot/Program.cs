@@ -10,7 +10,6 @@ builder.Services.AddCors(options =>
     options.AddPolicy("AllowReactApp",
         policy =>
         {
-            // 👇 UPDATE THIS LINE
             policy.WithOrigins("http://localhost:3000", "http://localhost:5173") 
                   .AllowAnyMethod()
                   .AllowAnyHeader();
@@ -26,7 +25,7 @@ Console.WriteLine("Connected to PostgreSQL inside Docker!");
 
 var app = builder.Build();
 
-// 🔹 Use CORS middleware BEFORE mapping endpoints
+// Use CORS middleware BEFORE mapping endpoints
 app.UseCors("AllowReactApp");
 
 Console.WriteLine("C# backend is running inside Docker!");
