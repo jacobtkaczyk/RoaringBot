@@ -1,0 +1,4 @@
+pandas
+dotenv
+alpaca-py
+backtesting
