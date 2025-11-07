@@ -56,9 +56,9 @@ const StockGraph = () => {
     };
 
     return (
-        <div className="max-w-4xl mx-auto my-8 p-6 sm:p-8 bg-slate-50 rounded-lg shadow-lg">
+        <div className="w-100% ml-6 mt-4 p-6 sm:p-8 bg-slate-50 rounded-lg shadow-lg">
             <header className="flex flex-wrap justify-between items-center mb-6">
-                <h1 className="text-3xl font-bold text-gray-800">Stock Viewer</h1>
+                
                 <form onSubmit={handleFetch} className="flex gap-2 mt-4 sm:mt-0">
                     <input
                         type="text"
@@ -89,9 +89,9 @@ const StockGraph = () => {
             )}
 
             {/* Chart */}
-            <div style={{ width: '100%', height: 400 }}>
+            <div style={{ width: '165%', height: 400 }}>
                 {history.length > 0 ? (
-                    <ResponsiveContainer width="100%" height="100%">
+                    <ResponsiveContainer width="165%" height="100%">
                         <LineChart data={history} margin={{ top: 20, right: 30, left: 20, bottom: 20 }}>
                             <CartesianGrid strokeDasharray="3 3" />
                             <XAxis dataKey="date" />
