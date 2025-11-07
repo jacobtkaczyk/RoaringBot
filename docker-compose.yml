@@ -8,6 +8,9 @@ services:
       - "5678:5678"
     volumes:
       - ./algos-python:/app
+      - ./algos-python:/algos-python  
+    env_file:
+      - .env  
     networks:
       - tradingnet
 
@@ -22,7 +25,8 @@ services:
       - DOTNET_USE_POLLING_FILE_WATCHER=1
       - ASPNETCORE_ENVIRONMENT=Development
     volumes:
-      - ./backend-csharp/RoaringBot:/app      
+      - ./backend-csharp/RoaringBot:/app   
+      - ./algos-python:/algos-python     
     networks:
       - tradingnet
     env_file:

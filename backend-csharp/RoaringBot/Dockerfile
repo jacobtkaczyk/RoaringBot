@@ -10,6 +10,10 @@ COPY . ./
 
 # Build the app
 RUN dotnet build -c Release
+RUN apt-get update && apt-get install -y python3 python3-pip && \
+    pip install --break-system-packages pandas numpy && \
+    rm -rf /var/lib/apt/lists/*
+
 
 # Run the app
 CMD ["dotnet", "run", "--configuration", "Release"]
