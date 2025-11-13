@@ -23,23 +23,29 @@ namespace RoaringBot
             var builder = WebApplication.CreateBuilder(args);
             builder.WebHost.UseUrls("http://0.0.0.0:5075");
 
+            // ✅ CORS setup — includes React dev ports + Docker bridge
             builder.Services.AddCors(options =>
             {
-                options.AddPolicy("AllowReactApp",
-                    policy =>
-                    {
-                        policy.WithOrigins("http://localhost:3000", "http://localhost:5173")
-                            .AllowAnyMethod()
-                            .AllowAnyHeader();
-                    });
+                options.AddPolicy("AllowReactApp", policy =>
+                {
+                    policy.WithOrigins(
+                        "http://localhost:3000",
+                        "http://localhost:5173",
+                        "http://127.0.0.1:5173",
+                        "http://frontend:5173" // Docker service name if you compose them
+                    )
+                    .AllowAnyMethod()
+                    .AllowAnyHeader();
+                });
             });
 
+            // ✅ Load API keys from environment
             var alpacaKey = Environment.GetEnvironmentVariable("ALPACA_KEY");
             var alpacaSecret = Environment.GetEnvironmentVariable("ALPACA_SECRET");
 
             if (string.IsNullOrEmpty(alpacaKey) || string.IsNullOrEmpty(alpacaSecret))
             {
-                throw new InvalidOperationException("Alpaca API keys are not configured. Check your .env file.");
+                throw new InvalidOperationException("Alpaca API keys are not configured. Check your .env file or Docker env variables.");
             }
 
             // ✅ Create Alpaca Data Client (Paper)
@@ -53,6 +59,11 @@ namespace RoaringBot
             app.UseCors("AllowReactApp");
 
             Console.WriteLine("✅ C# backend is running inside Docker!");
+            Console.WriteLine($"🌎 Listening on: http://0.0.0.0:5075");
+            Console.WriteLine($"🧠 Environment: {builder.Environment.EnvironmentName}");
+
+            // --- Health check endpoint ---
+            app.MapGet("/health", () => Results.Ok(new { status = "healthy", service = "RoaringBot.CSharp" }));
 
             // --- Root test endpoint ---
             app.MapGet("/", () => "Hello from C# + Alpaca!");
@@ -63,10 +74,9 @@ namespace RoaringBot
                 try
                 {
                     var threeMonthsAgo = DateTime.UtcNow.AddMonths(-3);
-
                     var request = new HistoricalBarsRequest(symbol, threeMonthsAgo, DateTime.UtcNow, BarTimeFrame.Day)
                     {
-                        Feed = MarketDataFeed.Iex // free IEX feed
+                        Feed = MarketDataFeed.Iex
                     };
 
                     var bars = await client.ListHistoricalBarsAsync(request);
@@ -87,12 +97,12 @@ namespace RoaringBot
                         403 => Results.Problem(statusCode: 403, detail: "Your API keys do not have permission for this request."),
                         422 => Results.NotFound($"Symbol '{symbol}' not found."),
                         429 => Results.Problem(statusCode: 429, detail: "Rate limit exceeded. Please try again later."),
-                        _ => Results.Problem(statusCode: 500, detail: $"An Alpaca API error occurred: {ex.Message}")
+                        _ => Results.Problem(statusCode: 500, detail: $"Alpaca API error: {ex.Message}")
                     };
                 }
                 catch (Exception ex)
                 {
-                    return Results.Problem($"An unexpected error occurred: {ex.Message}");
+                    return Results.Problem($"Unexpected error: {ex.Message}");
                 }
             });
 
@@ -107,18 +117,17 @@ namespace RoaringBot
                     };
 
                     var quote = await client.GetLatestQuoteAsync(request);
-
                     return Results.Ok(new { symbol, price = quote.AskPrice });
                 }
                 catch (RestClientErrorException ex)
                 {
                     return ex.ErrorCode == 422
                         ? Results.NotFound($"Symbol '{symbol}' not found.")
-                        : Results.Problem($"An Alpaca API error occurred: {ex.Message}");
+                        : Results.Problem($"Alpaca API error: {ex.Message}");
                 }
                 catch (Exception ex)
                 {
-                    return Results.Problem($"An unexpected error occurred: {ex.Message}");
+                    return Results.Problem($"Unexpected error: {ex.Message}");
                 }
             });
 
@@ -128,20 +137,15 @@ namespace RoaringBot
                 try
                 {
                     Console.WriteLine($"[run-algo] Received request for {request.Symbol} (short={request.Short}, long={request.Long})");
-                    var threeMonthsAgo = DateTime.UtcNow.AddMonths(-3);
 
+                    var threeMonthsAgo = DateTime.UtcNow.AddMonths(-3);
                     var barsRequest = new HistoricalBarsRequest(request.Symbol, threeMonthsAgo, DateTime.UtcNow, BarTimeFrame.Day)
                     {
                         Feed = MarketDataFeed.Iex
                     };
 
                     var bars = await client.ListHistoricalBarsAsync(barsRequest);
-
-                    var history = bars.Items.Select(b => new
-                    {
-                        date = b.TimeUtc.ToString("yyyy-MM-dd"),
-                        close = b.Close
-                    }).ToList();
+                    var history = bars.Items.Select(b => new { date = b.TimeUtc.ToString("yyyy-MM-dd"), close = b.Close }).ToList();
 
                     var inputDict = new Dictionary<string, object>
                     {
@@ -152,13 +156,22 @@ namespace RoaringBot
                     };
 
                     var jsonInput = JsonSerializer.Serialize(inputDict);
-                    var scriptPath = Path.Combine("..", "algos-python", "sma_signal_runner.py");
 
-                    if (!File.Exists(scriptPath))
+                    // ✅ Robust Python path resolution
+                    var possiblePaths = new[]
                     {
-                        Console.Error.WriteLine($"Expected python script at: {Path.GetFullPath(scriptPath)}");
-                        return Results.Problem($"Python script not found at path: {scriptPath}");
+                        Path.Combine(Directory.GetCurrentDirectory(), "algos-python", "sma_signal_runner.py"),
+                        Path.Combine("..", "algos-python", "sma_signal_runner.py")
+                    };
+
+                    var scriptPath = possiblePaths.FirstOrDefault(File.Exists);
+                    if (scriptPath == null)
+                    {
+                        Console.Error.WriteLine($"[run-algo] ❌ Python script not found. Checked: {string.Join(", ", possiblePaths.Select(Path.GetFullPath))}");
+                        return Results.Problem($"Python script not found. Make sure 'algos-python/sma_signal_runner.py' exists.");
                     }
+
+                    Console.WriteLine($"[run-algo] 🐍 Using Python script at {Path.GetFullPath(scriptPath)}");
 
                     var psi = new ProcessStartInfo
                     {
@@ -180,6 +193,7 @@ namespace RoaringBot
 
                     var output = await process.StandardOutput.ReadToEndAsync();
                     var error = await process.StandardError.ReadToEndAsync();
+
                     process.WaitForExit();
 
                     if (!string.IsNullOrWhiteSpace(error))
@@ -249,12 +263,16 @@ namespace RoaringBot
                     };
 
                     var jsonInput = JsonSerializer.Serialize(inputDict);
-                    var scriptPath = Path.Combine("..", "algos-python", "sma_signal_runner.py");
-
-                    if (!File.Exists(scriptPath))
+                    var possiblePaths = new[]
                     {
-                        Console.Error.WriteLine($"Expected python script at: {Path.GetFullPath(scriptPath)}");
-                        return Results.Problem($"Python script not found at path: {scriptPath}");
+                        Path.Combine(Directory.GetCurrentDirectory(), "algos-python", "sma_signal_runner.py"),
+                        Path.Combine("..", "algos-python", "sma_signal_runner.py")
+                    };
+                    var scriptPath = possiblePaths.FirstOrDefault(File.Exists);
+                    if (scriptPath == null)
+                    {
+                        Console.Error.WriteLine($"[trade/execute] ❌ Python script not found. Checked: {string.Join(", ", possiblePaths.Select(Path.GetFullPath))}");
+                        return Results.Problem($"Python script not found. Make sure 'algos-python/sma_signal_runner.py' exists.");
                     }
 
                     var psi = new ProcessStartInfo
@@ -330,6 +348,31 @@ namespace RoaringBot
                 }
             });
 
+            // --- Log streaming endpoint (SSE) ---
+            app.MapGet("/logs/stream", async (HttpContext context) =>
+            {
+                context.Response.Headers.Add("Cache-Control", "no-cache");
+                context.Response.Headers.Add("Content-Type", "text/event-stream");
+
+                var logFilePath = "/app/logs/output.log"; // or wherever you store logs
+                if (!File.Exists(logFilePath))
+                {
+                    await context.Response.WriteAsync("data: No log file found.\n\n");
+                    await context.Response.Body.FlushAsync();
+                    return;
+                }
+
+                using var fs = new FileStream(logFilePath, FileMode.Open, FileAccess.Read, FileShare.ReadWrite);
+                using var reader = new StreamReader(fs);
+
+                string? line;
+                while ((line = await reader.ReadLineAsync()) != null)
+                {
+                    await context.Response.WriteAsync($"data: {line}\n\n");
+                    await context.Response.Body.FlushAsync();
+                    await Task.Delay(500); // adjust speed of streaming
+                }
+            });
 
             await app.RunAsync();
         }
