@@ -14,6 +14,7 @@ using Microsoft.Extensions.Hosting;
 namespace RoaringBot
 {
     public record AlgoRequest(string Symbol, int Short, int Long);
+    public record TradeRequest(string Symbol, int Short, int Long, decimal Quantity = 1);
 
     public class Program
     {
@@ -42,8 +43,11 @@ namespace RoaringBot
             }
 
             // ✅ Create Alpaca Data Client (Paper)
-            var alpacaDataClient = Environments.Paper.GetAlpacaDataClient(new SecretKey(alpacaKey, alpacaSecret));
+            var secretKey = new SecretKey(alpacaKey, alpacaSecret);
+            var alpacaDataClient = Environments.Paper.GetAlpacaDataClient(secretKey);
+            var alpacaTradingClient = Environments.Paper.GetAlpacaTradingClient(secretKey);
             builder.Services.AddSingleton<IAlpacaDataClient>(alpacaDataClient);
+            builder.Services.AddSingleton<IAlpacaTradingClient>(alpacaTradingClient);
 
             var app = builder.Build();
             app.UseCors("AllowReactApp");
@@ -148,7 +152,7 @@ namespace RoaringBot
                     };
 
                     var jsonInput = JsonSerializer.Serialize(inputDict);
-                    var scriptPath = Path.Combine("..", "algos-python", "algo_runner.py");
+                    var scriptPath = Path.Combine("..", "algos-python", "sma_signal_runner.py");
 
                     if (!File.Exists(scriptPath))
                     {
@@ -184,20 +188,145 @@ namespace RoaringBot
                         Console.Error.WriteLine(error);
                     }
 
-                    if (string.IsNullOrWhiteSpace(output))
+                    var signal = output
+                        .Split(new[] { '\r', '\n' }, StringSplitOptions.RemoveEmptyEntries)
+                        .FirstOrDefault()
+                        ?.Trim()
+                        .ToUpperInvariant() ?? "HOLD";
+
+                    Console.WriteLine($"[run-algo] Python signal for {request.Symbol}: {signal}");
+
+                    return Results.Ok(new
                     {
-                        return Results.Problem("Python script returned no output.");
-                    }
-
-                    Console.WriteLine($"[run-algo] Python completed successfully for {request.Symbol}");
-
-                    // ✅ Just return the Python output directly as JSON
-                    return Results.Content(output, "application/json");
+                        symbol = request.Symbol,
+                        request.Short,
+                        request.Long,
+                        signal,
+                        bars_used = history.Count
+                    });
                 }
                 catch (Exception ex)
                 {
                     Console.Error.WriteLine($"[run-algo] Exception: {ex}");
                     return Results.Problem($"Failed to run trading algorithm: {ex.Message}");
+                }
+            });
+
+            // --- Execute trade based on Python signal ---
+            app.MapPost("/trade/execute", async (IAlpacaDataClient dataClient, IAlpacaTradingClient tradingClient, TradeRequest request) =>
+            {
+                try
+                {
+                    if (request.Quantity <= 0)
+                    {
+                        return Results.Problem("Quantity must be greater than zero.");
+                    }
+
+                    var threeMonthsAgo = DateTime.UtcNow.AddMonths(-3);
+                    var barsRequest = new HistoricalBarsRequest(request.Symbol, threeMonthsAgo, DateTime.UtcNow, BarTimeFrame.Day)
+                    {
+                        Feed = MarketDataFeed.Iex
+                    };
+
+                    var bars = await dataClient.ListHistoricalBarsAsync(barsRequest);
+                    var history = bars.Items.Select(b => new
+                    {
+                        date = b.TimeUtc.ToString("yyyy-MM-dd"),
+                        close = b.Close
+                    }).ToList();
+
+                    if (!history.Any())
+                    {
+                        return Results.Problem("No historical data retrieved for the requested symbol.");
+                    }
+
+                    var inputDict = new Dictionary<string, object>
+                    {
+                        ["symbol"] = request.Symbol,
+                        ["short"] = request.Short,
+                        ["long"] = request.Long,
+                        ["bars"] = history
+                    };
+
+                    var jsonInput = JsonSerializer.Serialize(inputDict);
+                    var scriptPath = Path.Combine("..", "algos-python", "sma_signal_runner.py");
+
+                    if (!File.Exists(scriptPath))
+                    {
+                        Console.Error.WriteLine($"Expected python script at: {Path.GetFullPath(scriptPath)}");
+                        return Results.Problem($"Python script not found at path: {scriptPath}");
+                    }
+
+                    var psi = new ProcessStartInfo
+                    {
+                        FileName = "python3",
+                        Arguments = scriptPath,
+                        RedirectStandardInput = true,
+                        RedirectStandardOutput = true,
+                        RedirectStandardError = true,
+                        UseShellExecute = false,
+                        CreateNoWindow = true,
+                        WorkingDirectory = Directory.GetCurrentDirectory()
+                    };
+
+                    using var process = new Process { StartInfo = psi };
+                    process.Start();
+
+                    await process.StandardInput.WriteAsync(jsonInput);
+                    process.StandardInput.Close();
+
+                    var output = await process.StandardOutput.ReadToEndAsync();
+                    var error = await process.StandardError.ReadToEndAsync();
+                    process.WaitForExit();
+
+                    if (!string.IsNullOrWhiteSpace(error))
+                    {
+                        Console.Error.WriteLine("Python stderr:");
+                        Console.Error.WriteLine(error);
+                    }
+
+                    var signal = output
+                        .Split(new[] { '\r', '\n' }, StringSplitOptions.RemoveEmptyEntries)
+                        .FirstOrDefault()
+                        ?.Trim()
+                        .ToUpperInvariant() ?? "HOLD";
+
+                    Console.WriteLine($"[trade/execute] Signal for {request.Symbol}: {signal}");
+
+                    if (signal == "HOLD")
+                    {
+                        return Results.Ok(new { symbol = request.Symbol, signal, message = "No action taken." });
+                    }
+
+                    var side = signal == "BUY" ? OrderSide.Buy : OrderSide.Sell;
+                    var quantity = OrderQuantity.Fractional(request.Quantity);
+                    var orderRequest = new NewOrderRequest(request.Symbol, quantity, side, OrderType.Market, TimeInForce.Day);
+                    var order = await tradingClient.PostOrderAsync(orderRequest);
+
+                    return Results.Ok(new
+                    {
+                        symbol = request.Symbol,
+                        signal,
+                        orderId = order.OrderId,
+                        quantity = request.Quantity,
+                        side = side.ToString()
+                    });
+                }
+                catch (RestClientErrorException ex)
+                {
+                    return ex.ErrorCode switch
+                    {
+                        401 => Results.Problem(statusCode: 401, detail: "Authentication failed. Check your API keys."),
+                        403 => Results.Problem(statusCode: 403, detail: "Your API keys do not have permission for this request."),
+                        422 => Results.NotFound("Trading request rejected. Check symbol or account settings."),
+                        429 => Results.Problem(statusCode: 429, detail: "Rate limit exceeded. Please try again later."),
+                        _ => Results.Problem(statusCode: 500, detail: $"An Alpaca API error occurred: {ex.Message}")
+                    };
+                }
+                catch (Exception ex)
+                {
+                    Console.Error.WriteLine($"[trade/execute] Exception: {ex}");
+                    return Results.Problem($"Failed to execute trade: {ex.Message}");
                 }
             });
 
