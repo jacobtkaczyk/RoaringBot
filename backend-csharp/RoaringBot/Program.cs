@@ -214,8 +214,8 @@ namespace RoaringBot
             // --- Log streaming endpoint (SSE) ---
             app.MapGet("/logs/stream", async (HttpContext context) =>
             {
-                context.Response.Headers.Add("Cache-Control", "no-cache");
-                context.Response.Headers.Add("Content-Type", "text/event-stream");
+                context.Response.Headers["Cache-Control"] = "no-cache";
+                context.Response.Headers["Content-Type"] = "text/event-stream";
 
                 var logFilePath = "/app/logs/output.log"; // or wherever you store logs
                 if (!File.Exists(logFilePath))

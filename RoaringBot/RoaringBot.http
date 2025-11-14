@@ -1,0 +1,6 @@
+@RoaringBot_HostAddress = http://localhost:5122
+
+GET {{RoaringBot_HostAddress}}/weatherforecast/
+Accept: application/json
+
+###
