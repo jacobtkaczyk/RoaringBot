@@ -16,6 +16,52 @@ namespace RoaringBot
     public record AlgoRequest(string Symbol, int Short, int Long);
     public record TradeRequest(string Symbol, int Short, int Long, decimal Quantity = 1);
 
+    public static class LogStream
+    {
+        private static readonly List<HttpResponse> _clients = new();
+        private static readonly object _lock = new();
+
+        public static void AddClient(HttpResponse response)
+        {
+            lock (_lock)
+            {
+                _clients.Add(response);
+            }
+        }
+
+        public static void RemoveClient(HttpResponse response)
+        {
+            lock (_lock)
+            {
+                _clients.Remove(response);
+            }
+        }
+
+        public static async Task PushAsync(string message)
+        {
+            List<HttpResponse> clientsCopy;
+
+            lock (_lock)
+            {
+                clientsCopy = _clients.ToList();
+            }
+
+            foreach (var client in clientsCopy)
+            {
+                try
+                {
+                    await client.WriteAsync($"data: {message}\n\n");
+                    await client.Body.FlushAsync();
+                }
+                catch
+                {
+                    RemoveClient(client);
+                }
+            }
+        }
+    }
+
+
     public class Program
     {
         public static async Task Main(string[] args)
@@ -136,7 +182,8 @@ namespace RoaringBot
             {
                 try
                 {
-                    Console.WriteLine($"[run-algo] Received request for {request.Symbol} (short={request.Short}, long={request.Long})");
+                    await LogStream.PushAsync($"[run-algo] Received request for {request.Symbol} short={request.Short} long={request.Long}");
+
 
                     var threeMonthsAgo = DateTime.UtcNow.AddMonths(-3);
                     var barsRequest = new HistoricalBarsRequest(request.Symbol, threeMonthsAgo, DateTime.UtcNow, BarTimeFrame.Day)
@@ -171,7 +218,8 @@ namespace RoaringBot
                         return Results.Problem($"Python script not found. Make sure 'algos-python/sma_signal_runner.py' exists.");
                     }
 
-                    Console.WriteLine($"[run-algo] 🐍 Using Python script at {Path.GetFullPath(scriptPath)}");
+                    await LogStream.PushAsync($"[run-algo] Using Python script: {Path.GetFullPath(scriptPath)}");
+
 
                     var psi = new ProcessStartInfo
                     {
@@ -209,6 +257,7 @@ namespace RoaringBot
                         .ToUpperInvariant() ?? "HOLD";
 
                     Console.WriteLine($"[run-algo] Python signal for {request.Symbol}: {signal}");
+                    await LogStream.PushAsync($"[run-algo] Python signal for {request.Symbol}: {signal}");
 
                     return Results.Ok(new
                     {
@@ -222,6 +271,10 @@ namespace RoaringBot
                 catch (Exception ex)
                 {
                     Console.Error.WriteLine($"[run-algo] Exception: {ex}");
+                    if (!string.IsNullOrWhiteSpace(ex.Message))
+                    {
+                        await LogStream.PushAsync($"[run-algo] Python stderr: {ex.Message}");
+                    }
                     return Results.Problem($"Failed to run trading algorithm: {ex.Message}");
                 }
             });
@@ -349,28 +402,27 @@ namespace RoaringBot
             });
 
             // --- Log streaming endpoint (SSE) ---
-            app.MapGet("/logs/stream", async (HttpContext context) =>
+            app.MapGet("/logs/stream", async context =>
             {
-                context.Response.Headers.Add("Cache-Control", "no-cache");
                 context.Response.Headers.Add("Content-Type", "text/event-stream");
+                context.Response.Headers.Add("Cache-Control", "no-cache");
 
-                var logFilePath = "/app/logs/output.log"; // or wherever you store logs
-                if (!File.Exists(logFilePath))
+                LogStream.AddClient(context.Response);
+
+                // keep connection open forever
+                var disconnect = context.RequestAborted;
+
+                try
                 {
-                    await context.Response.WriteAsync("data: No log file found.\n\n");
-                    await context.Response.Body.FlushAsync();
-                    return;
+                    await Task.Delay(-1, disconnect);
                 }
-
-                using var fs = new FileStream(logFilePath, FileMode.Open, FileAccess.Read, FileShare.ReadWrite);
-                using var reader = new StreamReader(fs);
-
-                string? line;
-                while ((line = await reader.ReadLineAsync()) != null)
+                catch (TaskCanceledException)
                 {
-                    await context.Response.WriteAsync($"data: {line}\n\n");
-                    await context.Response.Body.FlushAsync();
-                    await Task.Delay(500); // adjust speed of streaming
+                    // client disconnected
+                }
+                finally
+                {
+                    LogStream.RemoveClient(context.Response);
                 }
             });
 

@@ -25,7 +25,7 @@ const Logger = ({ endpoint = "http://localhost:5075/logs/stream" }) => {
         position: "fixed",
         bottom: "20px",
         left: "20px",
-        width: "400px",
+        width: "800px",
         height: "180px",
         backgroundColor: "#1a1a1a",
         color: "#00ff00",

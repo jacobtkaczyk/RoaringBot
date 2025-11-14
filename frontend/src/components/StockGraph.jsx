@@ -65,7 +65,7 @@ const StockGraph = () => {
                         value={inputSymbol}
                         onChange={(e) => setInputSymbol(e.target.value)}
                         placeholder="e.g., NVDA"
-                        className="py-2 px-3 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                        className="py-2 px-3 border text-black border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
                     />
                     <button
                         type="submit"

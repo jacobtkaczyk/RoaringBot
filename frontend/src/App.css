@@ -7,7 +7,7 @@
   display: flex;
   justify-content: flex-start; /* align items to left */
   align-items: flex-start; /* align items to top */
-  background-color: #f9fafb; /* optional light background */
+  background-color: #212222; /* optional light background */
 }
 
 .logo {
