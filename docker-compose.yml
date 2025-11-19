@@ -15,21 +15,19 @@ services:
 
   csharp-backend:
     build:
-      context: ./backend-csharp/RoaringBot    
+      context: ./backend-csharp/RoaringBot
+      dockerfile: Dockerfile
     container_name: csharp-backend
     ports:
       - "5075:5075"
-      - "9229:9229"  # For debugger attach
-    environment:
-      - DOTNET_USE_POLLING_FILE_WATCHER=1
-      - ASPNETCORE_ENVIRONMENT=Development
+      - "9229:9229"
     volumes:
-      - ./backend-csharp/RoaringBot:/app   
-      - ./algos-python:/algos-python     
-    networks:
-      - tradingnet
+      - ./backend-csharp/RoaringBot:/app
+      - ./algos-python:/app/algos-python
     env_file:
       - .env
+    networks:
+      - tradingnet
 
   frontend:
     build:

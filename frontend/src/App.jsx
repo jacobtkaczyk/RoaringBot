@@ -1,5 +1,6 @@
 import StockGraph from './components/StockGraph.jsx';
 import Logger from './components/Logger.jsx';
+import AlgosDropdown from './components/AlgosDropdown.jsx'; // <-- new
 import './App.css';
 
 function App() {
@@ -7,6 +8,7 @@ function App() {
     <div className="App">
       <StockGraph />
       <Logger />
+      <AlgosDropdown />
     </div>
   );
 }

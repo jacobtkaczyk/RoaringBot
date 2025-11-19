@@ -62,6 +62,7 @@ namespace RoaringBot
     }
 
 
+
     public class Program
     {
         public static async Task Main(string[] args)
@@ -101,8 +102,11 @@ namespace RoaringBot
             builder.Services.AddSingleton<IAlpacaDataClient>(alpacaDataClient);
             builder.Services.AddSingleton<IAlpacaTradingClient>(alpacaTradingClient);
 
+            builder.Services.AddControllers();
+
             var app = builder.Build();
             app.UseCors("AllowReactApp");
+            app.MapControllers();
 
             Console.WriteLine("✅ C# backend is running inside Docker!");
             Console.WriteLine($"🌎 Listening on: http://0.0.0.0:5075");
@@ -175,6 +179,21 @@ namespace RoaringBot
                 {
                     return Results.Problem($"Unexpected error: {ex.Message}");
                 }
+            });
+
+
+            app.MapGet("/api/algos", () =>
+            {
+                var algoFolder = Path.Combine(Directory.GetCurrentDirectory(), "algos-python");
+
+                if (!Directory.Exists(algoFolder))
+                    return Results.Ok(new string[] { });
+
+                var algos = Directory.GetFiles(algoFolder, "*.py")
+                                    .Select(Path.GetFileNameWithoutExtension)
+                                    .ToList();
+
+                return Results.Ok(algos);
             });
 
             // --- Run Python SMA Algorithm ---
@@ -402,27 +421,30 @@ namespace RoaringBot
             });
 
             // --- Log streaming endpoint (SSE) ---
-            app.MapGet("/logs/stream", async context =>
+
+            app.MapGet("/logs/stream", async (HttpContext context) =>
             {
-                context.Response.Headers.Add("Content-Type", "text/event-stream");
-                context.Response.Headers.Add("Cache-Control", "no-cache");
+                context.Response.Headers["Cache-Control"] = "no-cache";
+                context.Response.Headers["Content-Type"] = "text/event-stream";
 
-                LogStream.AddClient(context.Response);
-
-                // keep connection open forever
-                var disconnect = context.RequestAborted;
-
-                try
+                var logFilePath = "/app/logs/output.log"; // or wherever you store logs
+                if (!File.Exists(logFilePath))
                 {
-                    await Task.Delay(-1, disconnect);
+                    await context.Response.WriteAsync("data: No log file found.\n\n");
+                    await context.Response.Body.FlushAsync();
+                    return;
                 }
-                catch (TaskCanceledException)
+
+                using var fs = new FileStream(logFilePath, FileMode.Open, FileAccess.Read, FileShare.ReadWrite);
+                using var reader = new StreamReader(fs);
+
+                string? line;
+                while ((line = await reader.ReadLineAsync()) != null)
                 {
-                    // client disconnected
-                }
-                finally
-                {
-                    LogStream.RemoveClient(context.Response);
+                    await context.Response.WriteAsync($"data: {line}\n\n");
+                    await context.Response.Body.FlushAsync();
+                    await Task.Delay(500); // adjust speed of streaming
+
                 }
             });
 
