@@ -5,10 +5,15 @@ const AlgosDropdown = () => {
   const [algos, setAlgos] = useState([]);
   const [open, setOpen] = useState(false);
   const [selectedAlgo, setSelectedAlgo] = useState(null);
-  const [duration, setDuration] = useState("");
+
+  const [duration, setDuration] = useState("");         // minutes
+  const [intervalSec, setIntervalSec] = useState("");   // seconds
+  const [ticker, setTicker] = useState("");
+
+  const [running, setRunning] = useState(false);
   const ref = useRef();
 
-  // Close dropdown on outside click
+  // close dropdown
   useEffect(() => {
     const onDoc = (e) => {
       if (ref.current && !ref.current.contains(e.target)) setOpen(false);
@@ -17,21 +22,62 @@ const AlgosDropdown = () => {
     return () => document.removeEventListener("click", onDoc);
   }, []);
 
-  // Load list of algorithms
+  // load algos
   useEffect(() => {
     const fetchAlgos = async () => {
       try {
         const res = await fetch(`${API_BASE}/api/algos`);
-        if (!res.ok) throw new Error("Could not fetch algorithms");
         const data = await res.json();
         setAlgos(data);
-      } catch (err) {
-        console.error("Algos load error", err);
+      } catch {
         setAlgos([]);
       }
     };
     fetchAlgos();
   }, []);
+
+  const handleRun = async () => {
+    if (!selectedAlgo || !duration || !intervalSec || !ticker) return;
+
+    setRunning(true);
+    try {
+      const payload = {
+        Algo: selectedAlgo,
+        Symbol: ticker.toUpperCase(),
+        DurationMinutes: Number(duration),
+        IntervalSeconds: Number(intervalSec),
+        Short: 5,
+        Long: 20
+      };
+
+      const res = await fetch(`${API_BASE}/run-selected-algo/start`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload)
+      });
+
+      const json = await res.json();
+      if (!res.ok) alert(json.detail || "Error starting algo");
+      else alert("Algo started!");
+    } catch (e) {
+      alert("Run error");
+    }
+  };
+
+  const handleStop = async () => {
+    try {
+      const res = await fetch(`${API_BASE}/run-selected-algo/stop`, {
+        method: "POST"
+      });
+
+      const json = await res.json();
+      if (!res.ok) alert(json.detail || "Failed to stop");
+      else alert("Algo stopped.");
+    } catch (e) {
+      alert("Stop error");
+    }
+    setRunning(false);
+  };
 
   return (
     <div
@@ -47,32 +93,73 @@ const AlgosDropdown = () => {
     >
       {/* RUN BUTTON */}
       <button
-        disabled={!selectedAlgo || !duration}
-        onClick={() => {
-          console.log(
-            `Run algorithm: ${selectedAlgo}, duration: ${duration}`
-          );
-        }}
+        disabled={!selectedAlgo || !duration || !ticker || !intervalSec || running}
+        onClick={handleRun}
         style={{
           padding: "8px 14px",
           borderRadius: 8,
           border: "1px solid #0a0",
-          background: selectedAlgo && duration ? "#0f0" : "#ccc",
-          cursor: selectedAlgo && duration ? "pointer" : "not-allowed",
+          background: !running ? "#0f0" : "#ccc",
+          cursor: !running ? "pointer" : "not-allowed",
           fontWeight: "bold",
         }}
       >
-        Run
+        {running ? "Running…" : "Run"}
       </button>
 
-      {/* DURATION INPUT */}
+      {/* STOP BUTTON */}
+      <button
+        disabled={!running}
+        onClick={handleStop}
+        style={{
+          padding: "8px 14px",
+          borderRadius: 8,
+          border: "1px solid red",
+          background: running ? "#f55" : "#ccc",
+          cursor: running ? "pointer" : "not-allowed",
+          fontWeight: "bold",
+        }}
+      >
+        Stop
+      </button>
+
+      {/* TICKER */}
+      <input
+        type="text"
+        value={ticker}
+        placeholder="Ticker"
+        onChange={(e) => setTicker(e.target.value.toUpperCase())}
+        style={{
+          width: 110,
+          padding: "8px",
+          borderRadius: 8,
+          border: "1px solid #ddd",
+          textTransform: "uppercase",
+        }}
+      />
+
+      {/* DURATION MINUTES */}
       <input
         type="number"
         value={duration}
-        placeholder="Duration"
+        placeholder="Minutes"
         onChange={(e) => setDuration(e.target.value)}
         style={{
           width: 90,
+          padding: "8px",
+          borderRadius: 8,
+          border: "1px solid #ddd",
+        }}
+      />
+
+      {/* INTERVAL SECONDS */}
+      <input
+        type="number"
+        value={intervalSec}
+        placeholder="Interval sec"
+        onChange={(e) => setIntervalSec(e.target.value)}
+        style={{
+          width: 120,
           padding: "8px",
           borderRadius: 8,
           border: "1px solid #ddd",
@@ -86,10 +173,10 @@ const AlgosDropdown = () => {
           style={{
             padding: "8px 12px",
             borderRadius: 8,
-            border: "1px solid #ddd",
-            background: "#fff",
+            background: "#222",
+            color: "#fff",
             cursor: "pointer",
-            whiteSpace: "nowrap",
+            fontWeight: "500",
           }}
         >
           {selectedAlgo ? `Algo: ${selectedAlgo}` : "Algorithms ▾"}
@@ -105,38 +192,34 @@ const AlgosDropdown = () => {
               background: "#fff",
               border: "1px solid #eee",
               borderRadius: 8,
-              boxShadow: "0 6px 18px rgba(0,0,0,0.12)",
               position: "absolute",
               right: 0,
             }}
           >
-            {algos.length === 0 ? (
-              <div style={{ padding: 12 }}>No algos found</div>
-            ) : (
-              <ul style={{ listStyle: "none", margin: 0, padding: 8 }}>
-                {algos.map((file) => (
-                  <li key={file}>
-                    <button
-                      onClick={() => {
-                        setSelectedAlgo(file);
-                        setOpen(false);
-                      }}
-                      style={{
-                        display: "block",
-                        width: "100%",
-                        textAlign: "left",
-                        padding: "8px 10px",
-                        border: "none",
-                        background: "transparent",
-                        cursor: "pointer",
-                      }}
-                    >
-                      {file}
-                    </button>
-                  </li>
-                ))}
-              </ul>
-            )}
+            <ul style={{ listStyle: "none", padding: 8 }}>
+              {algos.map((file) => (
+                <li key={file}>
+                  <button
+                    onClick={() => {
+                      setSelectedAlgo(file);
+                      setOpen(false);
+                    }}
+                    style={{
+                      width: "100%",
+                      padding: "8px 10px",
+                      border: "none",
+                      background: "#222",
+                      color: "#fff",
+                      cursor: "pointer",
+                      borderRadius: 6,
+                      marginBottom: 6
+                    }}
+                  >
+                    {file}
+                  </button>
+                </li>
+              ))}
+            </ul>
           </div>
         )}
       </div>
